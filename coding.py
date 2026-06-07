@@ -92,17 +92,54 @@ What is the correct gl_code?"""
     else:
         return (gl_code, 75.0, "llm")
 
+def payee_history_layer(payee):
+    """
+    Tier 2: learn from past validated decisions for this payee.
+    Only trusts decisions that were rules-based (deterministic)
+    or explicitly validated by a human. Never learns from
+    low-confidence 'Uncategorized' guesses.
+    """
+    if not payee or payee.strip().lower() in ("unknown", ""):
+        return None  # can't learn history for an unknown payee
 
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Find past TRUSTED codings for this payee:
+    # - method = 'rules' (deterministic, always trusted), OR
+    # - method = 'validated' (a human confirmed it)
+    # and never 'Uncategorized'
+    cursor.execute("""
+        SELECT cl.gl_code, COUNT(*) as freq
+        FROM coding_log cl
+        JOIN transactions t ON cl.transaction_id = t.transaction_id
+        WHERE t.payee = ?
+          AND cl.gl_code != 'Uncategorized'
+          AND cl.method IN ('rules', 'validated')
+        GROUP BY cl.gl_code
+        ORDER BY freq DESC
+        LIMIT 1
+    """, (payee,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        return (row["gl_code"], 90.0, "payee_history")
+    return None
 
 def code_transaction(description, payee, amount, currency):
-    """
-    Orchestration: tries each tier in order.
-    Tier 1 rules -> Tier 3 LLM.
-    (Tier 2 payee history will be added in week 2.)
-    """
+    # Tier 1: deterministic rules
     result = rules_layer(description)
     if result is not None:
         return result
+
+    # Tier 2: payee history (learns from validated past decisions)
+    result = payee_history_layer(payee)
+    if result is not None:
+        return result
+
+    # Tier 3: LLM reasoning
     return llm_layer(description, payee, amount, currency)
 
 if __name__ == "__main__":
