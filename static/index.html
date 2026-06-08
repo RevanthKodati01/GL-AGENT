@@ -308,6 +308,11 @@
       const review = await (await fetch('/transactions/review')).json();
       document.getElementById('stat-review').textContent = review.count;
       renderTxnTable('review-table', review.transactions);
+
+      // Compute automation rate from current state, not just after running coding
+      const total = coded.count + review.count;
+      const rate = total > 0 ? Math.round(coded.count / total * 100) : 0;
+      document.getElementById('stat-rate').textContent = rate + '%';
     }
 
     function renderTxnTable(elId, txns) {
