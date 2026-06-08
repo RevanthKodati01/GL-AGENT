@@ -1,5 +1,3 @@
-from anthropic.types import text_editor_code_execution_str_replace_result_block
-from anthropic.types import thinking_config_enabled_param
 from database import get_connection
 import os
 from dotenv import load_dotenv
