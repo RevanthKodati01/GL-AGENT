@@ -1,5 +1,4 @@
 import sqlite3
-from datetime import datetime
 
 def get_connection():
     conn = sqlite3.connect("gl_agent.db")
@@ -10,9 +9,11 @@ def initialize_database():
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Transactions - the company's books. Now with account_id.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             transaction_id TEXT PRIMARY KEY,
+            account_id TEXT,
             date TEXT,
             payee TEXT,
             description TEXT,
@@ -24,8 +25,8 @@ def initialize_database():
             status TEXT DEFAULT 'pending'
         )
     """)
-    
-    # GL codes - the available categories and deterministic rules
+
+    # GL codes - categories and deterministic keyword rules
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS gl_codes (
             gl_code TEXT PRIMARY KEY,
@@ -35,7 +36,7 @@ def initialize_database():
         )
     """)
 
-    # Coding log - audit trail of every decision the agent makes
+    # Coding log - audit trail of every coding decision
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS coding_log (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,14 +49,17 @@ def initialize_database():
         )
     """)
 
-    # Bank statement - the bank's version of transactions, for reconciliation
+    # Bank statement - the bank's INDEPENDENT record.
+    # No transaction_id. The bank does not know our internal IDs.
+    # Matching must be earned via fuzzy comparison.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS bank_statement (
             bank_record_id TEXT PRIMARY KEY,
-            transaction_id TEXT,
+            account_id TEXT,
             settled_date TEXT,
             settled_amount REAL,
-            currency TEXT
+            currency TEXT,
+            bank_description TEXT
         )
     """)
 
@@ -67,9 +71,20 @@ def initialize_database():
             usd_rate REAL
         )
     """)
+
+    # Accounts - the company's bank accounts (one per country/currency)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS accounts (
+            account_id TEXT PRIMARY KEY,
+            account_name TEXT,
+            currency TEXT,
+            country TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
-    print("Database initialized with transactions table.")
+    print("Database initialized (with accounts + independent bank statement).")
 
 if __name__ == "__main__":
     initialize_database()

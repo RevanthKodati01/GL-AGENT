@@ -64,8 +64,9 @@
 
     .actions {
       display: flex;
+      align-items: center;
       gap: 12px;
-      margin-bottom: 24px;
+      margin-bottom: 8px;
     }
 
     button {
@@ -84,17 +85,25 @@
     }
 
     button.secondary {
-      background: #1f6feb;
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
     }
 
     button.secondary:hover {
-      background: #388bfd;
+      background: #30363d;
     }
 
     button:disabled {
       background: #21262d;
       color: #484f58;
       cursor: not-allowed;
+    }
+
+    .helper {
+      color: #8b949e;
+      font-size: 12px;
+      margin-bottom: 24px;
     }
 
     .section {
@@ -158,11 +167,6 @@
       color: #f85149;
     }
 
-    .method {
-      font-size: 11px;
-      color: #8b949e;
-    }
-
     .anomaly-missing {
       color: #f85149;
       font-weight: 600;
@@ -183,6 +187,13 @@
       color: #484f58;
       font-size: 13px;
       padding: 10px;
+    }
+
+    .divider {
+      width: 1px;
+      align-self: stretch;
+      background: #30363d;
+      margin: 0 4px;
     }
   </style>
 </head>
@@ -213,9 +224,20 @@
   </div>
 
   <div class="actions">
-    <button onclick="runCoding()" id="btn-code">Run Coding</button>
-    <button class="secondary" onclick="runReconcile()" id="btn-rec">Run Reconciliation</button>
-    <button class="secondary" onclick="refreshAll()">Refresh</button>
+    <button onclick="runCoding()" id="btn-code">&#9654; Run Coding</button>
+    <button onclick="runReconcile()" id="btn-rec">&#9654; Run Reconciliation</button>
+    <div class="divider"></div>
+    <button class="secondary" onclick="refreshAll()">&#8635; Refresh</button>
+    <button class="secondary" onclick="loadSummary()">Spend Summary</button>
+  </div>
+  <p class="helper">&#9654; actions process data (slower, calls the agent). Other buttons just update the view
+    (instant).</p>
+
+  <div class="section">
+    <h2>Spend by Category (CFO View)</h2>
+    <div id="summary-table">
+      <div class="empty">Click "Spend Summary" to see total spend per category in USD.</div>
+    </div>
   </div>
 
   <div class="section">
@@ -231,7 +253,12 @@
       <div class="empty">Nothing in queue yet.</div>
     </div>
   </div>
-
+  <div class="section">
+    <h2>Reconciliation Matches (fuzzy, no shared ID)</h2>
+    <div id="match-table">
+      <div class="empty">Click "Run Reconciliation" to match books against bank records.</div>
+    </div>
+  </div>
   <div class="section">
     <h2>Reconciliation Anomalies</h2>
     <div id="anomaly-table">
@@ -245,6 +272,22 @@
       return `<span class="badge ${cls}">${c}%</span>`;
     }
 
+    async function loadSummary() {
+      const res = await fetch('/summary');
+      const d = await res.json();
+      let rows = d.buckets.map(b => {
+        let pct = ((b.total_usd / d.grand_total_usd) * 100).toFixed(1);
+        return `<tr>
+          <td>${b.gl_code}</td>
+          <td>$${b.total_usd.toLocaleString()}</td>
+          <td>${b.transaction_count}</td>
+          <td>${pct}%</td></tr>`;
+      }).join('');
+      document.getElementById('summary-table').innerHTML =
+        `<p style="color:#8b949e;margin-bottom:16px;">Total spend: $${d.grand_total_usd.toLocaleString()} across all currencies (USD equivalent)</p>
+         <table><thead><tr><th>GL Code</th><th>Total (USD)</th><th>Transactions</th><th>% of Spend</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
     async function runCoding() {
       const btn = document.getElementById('btn-code');
       btn.disabled = true; btn.textContent = 'Coding...';
@@ -253,36 +296,34 @@
         const data = await res.json();
         document.getElementById('stat-rate').textContent = data.automation_rate + '%';
       } catch (e) { }
-      btn.disabled = false; btn.textContent = 'Run Coding';
+      btn.disabled = false; btn.innerHTML = '&#9654; Run Coding';
       refreshAll();
     }
 
     async function refreshAll() {
-      // Coded
       const coded = await (await fetch('/transactions/coded')).json();
       document.getElementById('stat-total').textContent = coded.count;
-      renderTxnTable('coded-table', coded.transactions, true);
+      renderTxnTable('coded-table', coded.transactions);
 
-      // Review queue
       const review = await (await fetch('/transactions/review')).json();
       document.getElementById('stat-review').textContent = review.count;
-      renderTxnTable('review-table', review.transactions, false);
+      renderTxnTable('review-table', review.transactions);
     }
 
-    function renderTxnTable(elId, txns, showMethod) {
+    function renderTxnTable(elId, txns) {
       const el = document.getElementById(elId);
       if (!txns || txns.length === 0) { el.innerHTML = '<div class="empty">None.</div>'; return; }
       let rows = txns.slice(0, 25).map(t => `
-    <tr>
-      <td>${t.transaction_id}</td>
-      <td>${t.description}</td>
-      <td>${t.amount} ${t.currency}</td>
-      <td>${t.gl_code}</td>
-      <td>${confBadge(t.confidence)}</td>
-    </tr>`).join('');
+        <tr>
+          <td>${t.transaction_id}</td>
+          <td>${t.description}</td>
+          <td>${t.amount} ${t.currency}</td>
+          <td>${t.gl_code}</td>
+          <td>${confBadge(t.confidence)}</td>
+        </tr>`).join('');
       el.innerHTML = `<table><thead><tr>
-    <th>ID</th><th>Description</th><th>Amount</th><th>GL Code</th><th>Confidence</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
+        <th>ID</th><th>Description</th><th>Amount</th><th>GL Code</th><th>Confidence</th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
     }
 
     async function runReconcile() {
@@ -291,9 +332,24 @@
       try {
         const data = await (await fetch('/reconcile')).json();
         document.getElementById('stat-anomaly').textContent = data.anomaly_count;
+        renderMatches(data.matches);
         renderAnomalies(data.anomalies);
       } catch (e) { }
-      btn.disabled = false; btn.textContent = 'Run Reconciliation';
+      btn.disabled = false; btn.innerHTML = '&#9654; Run Reconciliation';
+    }
+
+    function renderMatches(matches) {
+      const el = document.getElementById('match-table');
+      if (!matches || matches.length === 0) { el.innerHTML = '<div class="empty">No matches.</div>'; return; }
+      let rows = matches.map(m => `
+        <tr>
+          <td>${m.transaction_id}</td>
+          <td>${m.bank_record_id}</td>
+          <td><strong>${(m.score * 100).toFixed(0)}%</strong></td>
+          <td>amt ${(m.breakdown.amount * 100).toFixed(0)} · date ${(m.breakdown.date * 100).toFixed(0)} · payee ${(m.breakdown.payee * 100).toFixed(0)}</td>
+        </tr>`).join('');
+      el.innerHTML = `<p style="color:#8b949e;margin-bottom:12px;">${matches.length} confident matches found by fuzzy scoring (amount + date + payee similarity)</p>
+        <table><thead><tr><th>Book Txn</th><th>Bank Record</th><th>Match Score</th><th>Score Breakdown</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
 
     function renderAnomalies(anomalies) {
@@ -302,17 +358,16 @@
       let rows = anomalies.map(a => {
         let cls = a.type === 'MISSING' ? 'anomaly-missing' : (a.type === 'ORPHAN' ? 'anomaly-orphan' : '');
         return `<tr>
-      <td class="${cls}">${a.type}</td>
-      <td>${a.transaction_id}</td>
-      <td>${a.detail}</td>
-    </tr>`;
+          <td class="${cls}">${a.type}</td>
+          <td>${a.transaction_id}</td>
+          <td>${a.detail}</td>
+        </tr>`;
       }).join('');
       el.innerHTML = `<table><thead><tr>
-    <th>Type</th><th>Transaction</th><th>Detail</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
+        <th>Type</th><th>Transaction</th><th>Detail</th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
     }
 
-    // Load on page open
     refreshAll();
   </script>
 </body>

@@ -125,23 +125,63 @@ def get_review_queue():
 @app.get("/reconcile")
 def run_reconcile(explain: bool = False):
     reconciled, anomalies = reconcile()
- 
+
     result = {
         "reconciled_count": len(reconciled),
         "anomaly_count": len(anomalies),
+        "matches": reconciled[:50],   # show sample of confident fuzzy matches with scores
         "anomalies": anomalies
     }
- 
-    # Optionally add LLM explanations to the first few anomalies
+
     if explain:
         for a in anomalies[:5]:
             a["explanation"] = explain_anomaly(a)
- 
+
     return result
- 
 # ---------- serve frontend ----------
 app.mount("/static", StaticFiles(directory="static"), name="static")
  
 @app.get("/")
 def home():
     return FileResponse("static/index.html")
+
+@app.get("/summary")
+def spend_summary():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Load currency rates into a lookup
+    cursor.execute("SELECT currency_code, usd_rate FROM currencies")
+    rates = {r["currency_code"]: r["usd_rate"] for r in cursor.fetchall()}
+
+    # Get all coded transactions
+    cursor.execute("""
+        SELECT gl_code, amount, currency FROM transactions
+        WHERE status = 'coded' AND gl_code IS NOT NULL
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Group by gl_code, summing USD-converted amounts
+    summary = {}
+    for r in rows:
+        rate = rates.get(r["currency"], 1.0)
+        usd_value = r["amount"] * rate
+        if r["gl_code"] not in summary:
+            summary[r["gl_code"]] = {"total_usd": 0, "count": 0}
+        summary[r["gl_code"]]["total_usd"] += usd_value
+        summary[r["gl_code"]]["count"] += 1
+
+    # Format into a sorted list, biggest spend first
+    result = []
+    for gl_code, data in summary.items():
+        result.append({
+            "gl_code": gl_code,
+            "total_usd": round(data["total_usd"], 2),
+            "transaction_count": data["count"]
+        })
+    result.sort(key=lambda x: x["total_usd"], reverse=True)
+
+    grand_total = round(sum(x["total_usd"] for x in result), 2)
+
+    return {"grand_total_usd": grand_total, "buckets": result}
